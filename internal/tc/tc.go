@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/CodyGuo/glog"
+	"github.com/CodyGuo/tc-docker/internal/docker"
 	"github.com/CodyGuo/tc-docker/pkg/command"
 )
 
@@ -13,8 +14,12 @@ var (
 	ErrTcNotFound = errors.New("RTNETLINK answers: No such file or directory")
 )
 
-func SetTcRate(veth, rate, ceil string) error {
-	delRootHandleCmd := fmt.Sprintf("/usr/sbin/tc qdisc del dev %s root", veth)
+func setTcRate(device, rate, ceil, netns string) error {
+	// check netns, if empty, compose ip netns exec command prefix
+	if netns != "" {
+		netns = fmt.Sprintf("ip netns exec %s ", netns)
+	}
+	delRootHandleCmd := fmt.Sprintf("%s/usr/sbin/tc qdisc del dev %s root", netns, device)
 	glog.Debug(delRootHandleCmd)
 	out, err := command.CombinedOutput(delRootHandleCmd)
 	if err != nil {
@@ -22,29 +27,45 @@ func SetTcRate(veth, rate, ceil string) error {
 			return fmt.Errorf("out: %s, error: %v", out, err)
 		}
 	}
-	addRootHandleCmd := fmt.Sprintf("/usr/sbin/tc qdisc add dev %s root handle 1a1a: htb default 1", veth)
+	addRootHandleCmd := fmt.Sprintf("%s/usr/sbin/tc qdisc add dev %s root handle 1a1a: htb default 1", netns, device)
 	glog.Debug(addRootHandleCmd)
 	out, err = command.CombinedOutput(addRootHandleCmd)
 	if err != nil {
 		return fmt.Errorf("out: %s, error: %v", out, err)
 	}
-	addClassRateCmd := fmt.Sprintf("/usr/sbin/tc class add dev %s parent 1a1a: classid 1a1a:1 htb rate %s ceil %s prio 2", veth, rate, ceil)
-	glog.Debug(addClassRateCmd)
-	out, err = command.CombinedOutput(addClassRateCmd)
+	addClassCmd := fmt.Sprintf("%s/usr/sbin/tc class add dev %s parent 1a1a: classid 1a1a:1 htb rate %s ceil %s", netns, device, rate, ceil)
+	glog.Debug(addClassCmd)
+	out, err = command.CombinedOutput(addClassCmd)
 	if err != nil {
 		return fmt.Errorf("out: %s, error: %v", out, err)
 	}
-	addSfqHandleCmd := fmt.Sprintf("/usr/sbin/tc qdisc add dev %s parent 1a1a:1 handle 10: sfq perturb 10", veth)
+	addSfqHandleCmd := fmt.Sprintf("%s/usr/sbin/tc qdisc add dev %s parent 1a1a:1 handle 2a2a: sfq perturb 10", netns, device)
 	glog.Debug(addSfqHandleCmd)
 	out, err = command.CombinedOutput(addSfqHandleCmd)
 	if err != nil {
 		return fmt.Errorf("out: %s, error: %v", out, err)
 	}
-	addFilterCmd := fmt.Sprintf("/usr/sbin/tc filter add dev %s protocol ip parent 1a1a: prio 2 u32 match ip src 0.0.0.0/0 match ip dst 0.0.0.0/0 flowid 1a1a:1", veth)
+	addFilterCmd := fmt.Sprintf("%s/usr/sbin/tc filter add dev %s parent 1a1a: protocol ip prio 1 u32 match ip src 0.0.0.0/0 match ip dst 0.0.0.0/0 flowid 1a1a:1", netns, device)
 	glog.Debug(addFilterCmd)
 	out, err = command.CombinedOutput(addFilterCmd)
 	if err != nil {
 		return fmt.Errorf("out: %s, error: %v", out, err)
 	}
 	return nil
+}
+
+func setTcRateHost(device, rate, ceil string) error {
+	return setTcRate(device, rate, ceil, "")
+}
+
+func setTcRateContainer(device, rate, ceil, containerName string) error {
+	return setTcRate(device, rate, ceil, containerName)
+}
+
+func SetTcRate(container *docker.Container) error {
+	err := setTcRateHost(container.VethPeer, container.TcRate, container.TcCeil)
+	if err != nil {
+		return err
+	}
+	return setTcRateContainer(container.Veth, container.TcRate, container.TcCeil, container.Name)
 }

@@ -13,29 +13,12 @@ import (
 func (c *Container) EventStart(h func(Container) error) <-chan error {
 	errStream := make(chan error)
 	c.event.Handle("start", func(e events.Message) {
-		name, err := c.getName(e.ID)
+		containers, err := c.buildContainers(e.ID, e.Actor.Attributes)
 		if err != nil {
 			errStream <- err
 		}
-		sandboxKey, err := c.getSandboxKey(e.ID)
-		if err != nil {
-			errStream <- err
-			return
-		}
-		veths, err := c.GetVeths(name, sandboxKey)
-		if err != nil {
-			errStream <- err
-			return
-		}
-		rate, ceil := c.getLabelTC(e.Actor.Attributes)
-		for _, veth := range veths {
-			err = h(Container{
-				ID:     e.ID[:12],
-				Name:   name,
-				Veth:   veth,
-				TcRate: rate,
-				TcCeil: ceil,
-			})
+		for _, c := range containers {
+			err = h(*c)
 		}
 		if err != nil {
 			errStream <- err

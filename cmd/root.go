@@ -32,7 +32,7 @@ var rootCmd = &cobra.Command{
 			glog.Fatal(err)
 		}
 		for _, container := range containers {
-			err := tc.SetTcRate(container.Veth, container.TcRate, container.TcCeil)
+			err := tc.SetTcRate(container)
 			if err != nil {
 				glog.Errorf("SetTcRate failed, container: %s, id: %s, error: %v", container.Name, container.ID, err)
 				continue
@@ -42,7 +42,7 @@ var rootCmd = &cobra.Command{
 		}
 
 		startErr := c.EventStart(func(container docker.Container) error {
-			err := tc.SetTcRate(container.Veth, container.TcRate, container.TcCeil)
+			err := tc.SetTcRate(&container)
 			if err != nil {
 				return fmt.Errorf("SetTcRate failed, container: %s, id: %s, error: %v", container.Name, container.ID, err)
 			}

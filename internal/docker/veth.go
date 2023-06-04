@@ -17,7 +17,7 @@ type Veth struct {
 	LinkIdent string
 }
 
-func (c *Container) GetVeths(name, sandboxKey string) ([]string, error) {
+func (c *Container) GetVeths(name, sandboxKey string) ([][]string, error) {
 	containerVeths, err := c.getContainerVeths(name, sandboxKey)
 	if err != nil {
 		return nil, err
@@ -26,12 +26,12 @@ func (c *Container) GetVeths(name, sandboxKey string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	veths := []string{}
+	veths := [][]string{}
 	for _, hv := range hostVeths {
 		for _, cv := range containerVeths {
 			if cv.Ident == hv.LinkIdent && cv.LinkIdent == hv.Ident {
 				glog.Debugf("GetVeths found, container: %s, device: %s, veth: %+v", name, hv.Device, *cv)
-				veths = append(veths, hv.Device)
+				veths = append(veths, []string{cv.Device, hv.Device})
 			}
 		}
 	}

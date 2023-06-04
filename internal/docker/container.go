@@ -11,20 +11,51 @@ import (
 )
 
 type Container struct {
-	ctx    context.Context
-	dc     *client.Client
-	event  EventHandler
-	ID     string
-	Name   string
-	Veth   string
-	TcRate string
-	TcCeil string
+	ctx      context.Context
+	dc       *client.Client
+	event    EventHandler
+	ID       string
+	Name     string
+	Veth     string
+	VethPeer string
+	TcRate   string
+	TcCeil   string
 }
 
 func NewContainer(ctx context.Context, dc *client.Client) *Container {
 	c := &Container{ctx: ctx, dc: dc}
 	go c.eventWatch()
 	return c
+}
+
+// build containers from container id
+func (c *Container) buildContainers(containerID string, labels map[string]string) ([]*Container, error) {
+	name, err := c.getName(containerID)
+	if err != nil {
+		return nil, fmt.Errorf("getName error: %v", err)
+	}
+	sandboxKey, err := c.getSandboxKey(containerID)
+	if err != nil {
+		return nil, fmt.Errorf("getSandboxKey error: %v", err)
+	}
+	veths, err := c.GetVeths(name, sandboxKey)
+	if err != nil {
+		return nil, fmt.Errorf("GetVeths error: %v", err)
+	}
+	rate, ceil := c.getLabelTC(labels)
+
+	var containers []*Container
+	for _, vethPair := range veths {
+		containers = append(containers, &Container{
+			ID:       containerID[:12],
+			Name:     name,
+			Veth:     vethPair[0],
+			VethPeer: vethPair[1],
+			TcRate:   rate,
+			TcCeil:   ceil,
+		})
+	}
+	return containers, nil
 }
 
 func (c *Container) GetRunningList() ([]*Container, error) {
@@ -38,29 +69,13 @@ func (c *Container) GetRunningList() ([]*Container, error) {
 
 	var containers []*Container
 	for _, container := range containerList {
-		name, err := c.getName(container.ID)
+		c, err := c.buildContainers(container.ID, container.Labels)
 		if err != nil {
-			return nil, fmt.Errorf("getName error: %v", err)
+			return nil, err
 		}
-		sandboxKey, err := c.getSandboxKey(container.ID)
-		if err != nil {
-			return nil, fmt.Errorf("getSandboxKey error: %v", err)
-		}
-		veths, err := c.GetVeths(name, sandboxKey)
-		if err != nil {
-			return nil, fmt.Errorf("GetRunningList.getVeths error: %v", err)
-		}
-		rate, ceil := c.getLabelTC(container.Labels)
-		for _, veth := range veths {
-			containers = append(containers, &Container{
-				ID:     container.ID[:12],
-				Name:   name,
-				Veth:   veth,
-				TcRate: rate,
-				TcCeil: ceil,
-			})
 
-		}
+		// append c to containers
+		containers = append(containers, c...)
 	}
 	return containers, nil
 }
